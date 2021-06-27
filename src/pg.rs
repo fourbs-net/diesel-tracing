@@ -44,7 +44,7 @@ impl SimpleConnection for InstrumentedPgConnection {
         skip(self, query),
         err,
     )]
-    fn batch_execute(&self, query: &str) -> QueryResult<()> {
+    fn batch_execute(&mut self, query: &str) -> QueryResult<()> {
         debug!("executing batch query");
         self.inner.batch_execute(query)?;
 
@@ -70,7 +70,7 @@ impl Connection for InstrumentedPgConnection {
     )]
     fn establish(database_url: &str) -> ConnectionResult<InstrumentedPgConnection> {
         debug!("establishing postgresql connection");
-        let conn = PgConnection::establish(database_url)?;
+        let mut conn = PgConnection::establish(database_url)?;
 
         debug!("querying postgresql connection information");
         let info: PgConnectionInfo = select((
@@ -79,7 +79,7 @@ impl Connection for InstrumentedPgConnection {
             inet_server_port,
             version,
         ))
-        .get_result(&conn)
+        .get_result(&mut conn)
         .map_err(ConnectionError::CouldntSetupConfiguration)?;
 
         let span = tracing::Span::current();
@@ -107,7 +107,7 @@ impl Connection for InstrumentedPgConnection {
         skip(self, query),
         err,
     )]
-    fn execute(&self, query: &str) -> QueryResult<usize> {
+    fn execute(&mut self, query: &str) -> QueryResult<usize> {
         debug!("executing query");
         self.inner.execute(query)
     }
@@ -125,53 +125,7 @@ impl Connection for InstrumentedPgConnection {
         skip(self, source),
         err,
     )]
-    fn query_by_index<T, U>(&self, source: T) -> QueryResult<Vec<U>>
-    where
-        T: AsQuery,
-        T::Query: QueryFragment<Pg> + QueryId,
-        Pg: HasSqlType<T::SqlType>,
-        U: Queryable<T::SqlType, Pg>,
-    {
-        debug!("querying by index");
-        self.inner.query_by_index(source)
-    }
-
-    #[doc(hidden)]
-    #[instrument(
-        fields(
-            db.name=%self.info.current_database,
-            db.system="postgresql",
-            db.version=%self.info.version,
-            otel.kind="client",
-            net.peer.ip=%self.info.inet_server_addr,
-            net.peer.port=%self.info.inet_server_port,
-        ),
-        skip(self, source),
-        err,
-    )]
-    fn query_by_name<T, U>(&self, source: &T) -> QueryResult<Vec<U>>
-    where
-        T: QueryFragment<Pg> + QueryId,
-        U: QueryableByName<Pg>,
-    {
-        debug!("querying by name");
-        self.inner.query_by_name(source)
-    }
-
-    #[doc(hidden)]
-    #[instrument(
-        fields(
-            db.name=%self.info.current_database,
-            db.system="postgresql",
-            db.version=%self.info.version,
-            otel.kind="client",
-            net.peer.ip=%self.info.inet_server_addr,
-            net.peer.port=%self.info.inet_server_port,
-        ),
-        skip(self, source),
-        err,
-    )]
-    fn execute_returning_count<T>(&self, source: &T) -> QueryResult<usize>
+    fn execute_returning_count<T>(&mut self, source: &T) -> QueryResult<usize>
     where
         T: QueryFragment<Pg> + QueryId,
     {
@@ -189,11 +143,37 @@ impl Connection for InstrumentedPgConnection {
             net.peer.ip=%self.info.inet_server_addr,
             net.peer.port=%self.info.inet_server_port,
         ),
+        skip(self, source),
+        err,
+    )]
+    fn load<T, U, ST>(&mut self, source: T) -> QueryResult<Vec<U>>
+    where
+        T: AsQuery,
+        T::Query: QueryFragment<Self::Backend> + QueryId,
+        T::SqlType: diesel::query_dsl::CompatibleType<U, Self::Backend, SqlType = ST>,
+        U: diesel::deserialize::FromSqlRow<ST, Self::Backend>,
+        Self::Backend: diesel::expression::QueryMetadata<T::SqlType> {
+        debug!("loading rows");
+        self.inner.load(source)
+    }
+
+    #[doc(hidden)]
+    #[instrument(
+        fields(
+            db.name=%self.info.current_database,
+            db.system="postgresql",
+            db.version=%self.info.version,
+            otel.kind="client",
+            net.peer.ip=%self.info.inet_server_addr,
+            net.peer.port=%self.info.inet_server_port,
+        ),
         skip(self),
     )]
-    fn transaction_manager(&self) -> &Self::TransactionManager {
-        debug!("retrieving transaction manager");
-        &self.inner.transaction_manager()
+    fn transaction_state(
+        &mut self,
+    ) -> &mut <Self::TransactionManager as diesel::connection::TransactionManager<Self>>::TransactionStateData {
+        debug!("retrieving transaction state");
+        self.inner.transaction_state()
     }
 }
 
@@ -209,7 +189,7 @@ impl InstrumentedPgConnection {
         ),
         skip(self),
     )]
-    pub fn build_transaction(&self) -> TransactionBuilder {
+    pub fn build_transaction(&mut self) -> TransactionBuilder<diesel::PgConnection> {
         debug!("starting transaction builder");
         self.inner.build_transaction()
     }
