@@ -3,6 +3,7 @@ use diesel::deserialize::{Queryable, QueryableByName};
 use diesel::pg::{Pg, PgConnection, TransactionBuilder};
 use diesel::query_builder::{AsQuery, QueryFragment, QueryId};
 use diesel::result::{ConnectionError, ConnectionResult, QueryResult};
+use diesel::r2d2::R2D2Connection;
 use diesel::sql_types::HasSqlType;
 use diesel::RunQueryDsl;
 use diesel::{no_arg_sql_function, select};
@@ -174,6 +175,12 @@ impl Connection for InstrumentedPgConnection {
     ) -> &mut <Self::TransactionManager as diesel::connection::TransactionManager<Self>>::TransactionStateData {
         debug!("retrieving transaction state");
         self.inner.transaction_state()
+    }
+}
+
+impl R2D2Connection for InstrumentedPgConnection {
+    fn ping(&mut self) -> QueryResult<()> {
+        self.inner.ping()
     }
 }
 

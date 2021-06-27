@@ -20,7 +20,7 @@ postgres = ["diesel/postgres"]
 sqlite = ["diesel/sqlite"]
 
 [dependencies]
-diesel = { version = "2.0", features = ["network-address"], default-features = false }
+diesel = { version = "2.0", features = ["network-address", "r2d2"], default-features = false }
 ipnetwork = ">=0.12.2, <0.19.0"
 tracing = "0.1"
 
